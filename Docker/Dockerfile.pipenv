@@ -1,7 +1,10 @@
 # Author: Zacks Shen
 # GitHub: https://github.com/ZacksAmber/ENV/Docker
-# Reference: https://luis-sena.medium.com/creating-the-perfect-python-dockerfile-51bdec41f1c8
+# Reference: https://gist.github.com/lsena/42e091bfbf2bcea26a5561794f54f9bc#file-dockerfile
+# Reference: https://sourcery.ai/blog/python-docker/
 # Reference: https://github.com/deluan/zsh-in-docker
+# Reference: https://pipenv.pypa.io/en/latest/basics
+# Reference: https://sourcery.ai/blog/python-docker/
 
 # Global ARGs for username and project directory
 # https://docs.docker.com/engine/reference/builder/#arg
@@ -24,6 +27,12 @@ ARG PYTHON_MARJOR_MINOR
 # avoid stuck build due to user prompt
 ARG DEBIAN_FRONTEND=noninteractive
 
+# Setup ENV for pipenv
+ENV LANG C.UTF-8
+ENV LC_ALL C.UTF-8
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONFAULTHANDLER 1
+
 # Install dependencies for building python venv
 RUN apt-get update && apt-get install --no-install-recommends -y $PYTHON_MARJOR_MINOR $PYTHON_MARJOR_MINOR-dev $PYTHON_MARJOR_MINOR-venv $PYTHON_MAJOR-pip $PYTHON_MAJOR-wheel build-essential \
     # Clean up
@@ -31,15 +40,20 @@ RUN apt-get update && apt-get install --no-install-recommends -y $PYTHON_MARJOR_
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Create and activate virtual environment
-# using same user name in both builder and runtime to avoid issuess with packages
-RUN $PYTHON_MARJOR_MINOR -m venv /home/$USERNAME/venv
-ENV PATH="/home/$USERNAME/venv/bin:$PATH"
+# Install pipenv
+RUN $PYTHON_MARJOR_MINOR -m pip install pipenv
 
-# Install packages from requirements
-COPY requirements.txt .
-RUN pip3 install --no-cache-dir wheel
-RUN pip3 install --no-cache-dir -r requirements.txt
+# Tell pipenv to create venv in the current directory
+ENV PIPENV_VENV_IN_PROJECT=1
+
+WORKDIR /home/$USERNAME/
+COPY Pipfile .
+COPY Pipfile.lock .
+
+# Install packages from Pipfile.lock then create a .venv under current dir,
+# where here the current dir is WORKDIR
+# https://pipenv-fork.readthedocs.io/en/latest/advanced.html
+RUN pipenv install --deploy --ignore-pipfile
 
 
 #################
@@ -68,8 +82,8 @@ RUN apt-get update && apt-get install --no-install-recommends -y $PYTHON_MARJOR_
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy virtual env from builder's root directory to runtime's WORKDIR/venv
-COPY --from=builder /home/$USERNAME/venv /home/$USERNAME/venv
+# Copy virtual env from builder's specific path to runtime's same path
+COPY --from=builder /home/$USERNAME/.venv /home/$USERNAME/.venv
 
 # WARNING! Install zsh and sudo for dev only!
 # https://github.com/deluan/zsh-in-docker
@@ -105,8 +119,8 @@ EXPOSE 5000
 ENV PYTHONUNBUFFERED=1
 
 # Activate virtual environment
-ENV VIRTUAL_ENV=/home/$USERNAME/venv
-ENV PATH="/home/$USERNAME/venv/bin:$PATH"
+ENV VIRTUAL_ENV=/home/$USERNAME/.venv
+ENV PATH="/home/$USERNAME/.venv/bin:$PATH"
 
 # WARNING! Uncomment the following line for production!
 # /dev/shm is mapped to shared memory and should be used for gunicorn heartbeat
